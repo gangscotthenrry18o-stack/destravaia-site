@@ -32,6 +32,7 @@
 <div class="admin-actions"><button class="btn" id="saveAdmin">Salvar alterações</button><button class="btn outline" id="resetAdmin">Restaurar conteúdo inicial</button></div><div id="adminMessage" class="toast" aria-live="polite"></div></div></div>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
 <script>
 const firebaseConfig = {
   apiKey: "AIzaSyBPMvh0iCQ67pqapyLYSjWwOB3oP3dDdIw",
@@ -44,9 +45,26 @@ const firebaseConfig = {
 };
 firebase.initializeApp(firebaseConfig);
 const auth = firebase.auth();
+const db = firebase.firestore();
 const defaults={hero:"Criamos experiências digitais que valorizam sua marca, aproximam você dos clientes e ajudam seu negócio a crescer.",about:"Desde 2023, atuamos no mercado de marketing, unindo criatividade e soluções digitais para ajudar marcas e negócios a se apresentarem com mais profissionalismo. Acreditamos que toda empresa tem uma história que merece ser vista — e trabalhamos para dar forma a essa história no ambiente digital.",services:["Criação de site","Design e identidade visual","Artes para redes sociais"],portfolio:[["Vitrine de tecnologia","Conceito de catálogo digital para apresentar produtos e facilitar consultas."],["Marca de alimentação","Apresentação de marca com foco em produtos, identidade e contato rápido."],["Catálogo automotivo","Modelo de vitrine para destacar veículos, informações e canais de atendimento."]],phone:"5517988456452",instagram:"https://www.instagram.com/destrava_ia/"};
-const $=id=>document.getElementById(id);let data;
-try{data=JSON.parse(localStorage.getItem("destravaia-content"))||structuredClone(defaults)}catch(e){data=JSON.parse(JSON.stringify(defaults))}
+const $=id=>document.getElementById(id);
+let data=JSON.parse(JSON.stringify(defaults));
+
+async function carregarConteudo(){
+  try{
+    const doc=await db.collection("site").doc("conteudo").get();
+    if(doc.exists){
+     const conteudo = doc.data();
+data = {...defaults, ...conteudo};
+data.portfolio = (conteudo.portfolio || defaults.portfolio).map(p =>
+  Array.isArray(p) ? p : [p.title, p.description]
+);
+    }
+  }catch(error){
+    console.error("Erro ao carregar conteúdo:",error);
+  }
+  render();
+}
 function wa(){return "https://wa.me/"+String(data.phone).replace(/\D/g,"")+"?text="+encodeURIComponent("Olá! Gostaria de fazer um orçamento com a DestravaIA.")}
 function render(){ $("heroText").textContent=data.hero;$("aboutText").textContent=data.about;document.querySelectorAll("[data-whatsapp]").forEach(a=>{a.href=wa();a.target="_blank";a.rel="noopener"});document.querySelectorAll('a[href*="instagram.com/destrava_ia"]').forEach(a=>a.href=data.instagram);
 $("services").innerHTML=data.services.map((s,i)=>`<article class="card"><div class="iconbox">${["⌘","✦","◎","✧","◇"][i%5]}</div><h3>${esc(s)}</h3><p>${esc(s==="Criação de site"?"Sites modernos, responsivos e pensados para apresentar sua empresa, seus serviços e facilitar o contato com seus clientes.":"Soluções criativas e personalizadas para fortalecer a comunicação e a presença da sua marca.")}</p><a class="textlink" href="${wa()}" target="_blank" rel="noopener">Solicitar orçamento ↗</a></article>`).join("");
@@ -62,8 +80,53 @@ auth.onAuthStateChanged(user=>{
     $("adminModal").classList.remove("open");
   }
 });
-$("saveAdmin").onclick=()=>{data={hero:$("editHero").value.trim(),about:$("editAbout").value.trim(),services:$("editServices").value.split("\n").map(x=>x.trim()).filter(Boolean),portfolio:$("editPortfolio").value.split("\n").filter(x=>x.trim()).map(x=>{let p=x.split("|");return[p.shift().trim(),p.join("|").trim()] }),phone:$("editPhone").value,instagram:$("editInstagram").value.trim()};if(!data.services.length)data.services=["Criação de site"];try{localStorage.setItem("destravaia-content",JSON.stringify(data));render();$("adminMessage").textContent="Alterações salvas neste navegador!";}catch(e){$("adminMessage").textContent="Não foi possível salvar neste navegador."}};
+
+$("saveAdmin").onclick=async()=>{
+  const btn=$("saveAdmin");
+  btn.disabled=true;
+  $("adminMessage").textContent="Salvando na nuvem...";
+
+  try{
+    data={
+      hero:$("editHero").value.trim(),
+      about:$("editAbout").value.trim(),
+      services:$("editServices").value
+        .split("\n").map(x=>x.trim()).filter(Boolean),
+      portfolio:$("editPortfolio").value
+        .split("\n").filter(x=>x.trim())
+        .map(x=>{
+          let p=x.split("|");
+          return [p.shift().trim(),p.join("|").trim()];
+        }),
+      phone:$("editPhone").value,
+      instagram:$("editInstagram").value.trim()
+    };
+
+    if(!data.services.length){
+      data.services=["Criação de site"];
+    }
+
+    await db.collection("site").doc("conteudo").set({
+  ...data,
+  portfolio: data.portfolio.map(p => ({
+    title: p[0],
+    description: p[1]
+  }))
+});
+
+    render();
+    $("adminMessage").textContent=
+      "Alterações salvas na nuvem com sucesso!";
+  }catch(error){
+    console.error("Erro ao salvar:",error);
+    $("adminMessage").textContent=
+      "Erro ao salvar. Confira sua conexão e as regras do Firebase.";
+  }finally{
+    btn.disabled=false;
+  }
+};
 $("resetAdmin").onclick=()=>{data=JSON.parse(JSON.stringify(defaults));localStorage.removeItem("destravaia-content");fill();render();$("adminMessage").textContent="Conteúdo inicial restaurado."};
 $("adminLogout").onclick=async()=>{await auth.signOut();$("adminModal").classList.remove("open");};
-$("year").textContent=new Date().getFullYear();render();
+$("year").textContent=new Date().getFullYear();
+carregarConteudo();
 </script></body></html>
